@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Weight Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root[data-theme="dark"] {
+      --bg: #000000; --card: #1c1c1e; --accent: #0a84ff;
+      --text: #ffffff; --text-sec: #8e8e93; --border: #2c2c2e;
+      --card-inner: #2c2c2e; --success: #30d158; --warning: #ffd60a; --danger: #ff453a;
+    }
+    :root[data-theme="light"] {
+      --bg: #f2f2f7; --card: #ffffff; --accent: #007aff;
+      --text: #000000; --text-sec: #6c6c70; --border: #e5e5ea;
+      --card-inner: #e5e5ea; --success: #34c759; --warning: #ff9500; --danger: #ff3b30;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      background: var(--bg); color: var(--text); margin: 0; padding: 16px;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .header h1 { font-size: 1.4rem; margin: 0; }
+    .header-actions { display: flex; gap: 12px; align-items: center; }
+    .btn-link { color: var(--accent); text-decoration: none; font-weight: 600; font-size: 0.9rem; cursor: pointer; border: none; background: none; padding: 0; }
+
+    .card { background: var(--card); border-radius: 16px; padding: 16px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; }
+    .stat-card { background: var(--card); border-radius: 14px; padding: 12px; text-align: center; }
+    .stat-val { font-size: 1.3rem; font-weight: 700; margin-top: 4px; color: var(--accent); }
+    .stat-label { font-size: 0.75rem; color: var(--text-sec); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .form-group { display: flex; gap: 8px; margin-bottom: 10px; }
+    input, select, button {
+      background: var(--card-inner); border: 1px solid var(--border); color: var(--text);
+      padding: 10px 12px; border-radius: 10px; font-size: 0.95rem; box-sizing: border-box;
+    }
+    input[type="number"], input[type="date"], input[type="text"], input[type="password"] { flex: 1; }
+    button.btn-primary { background: var(--accent); color: white; border: none; font-weight: 600; cursor: pointer; }
+    button.btn-secondary { background: var(--card-inner); color: var(--text); border: none; font-weight: 600; cursor: pointer; }
+    button.btn-danger { background: rgba(255, 69, 58, 0.15); color: var(--danger); border: 1px solid var(--danger); font-weight: 600; cursor: pointer; }
+
+    .unit-toggle { display: flex; gap: 8px; align-items: center; font-size: 0.85rem; color: var(--text-sec); }
+
+    .goal-badge {
+      display: inline-block; padding: 4px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: 600; margin-top: 6px;
+    }
+    .badge-success { background: rgba(48, 209, 88, 0.15); color: var(--success); }
+    .badge-warning { background: rgba(255, 214, 10, 0.15); color: var(--warning); }
+    .badge-sim { background: rgba(10, 132, 255, 0.15); color: var(--accent); border: 1px dashed var(--accent); margin-bottom: 8px; }
+
+    /* Modal Styling */
+    .modal-overlay {
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 100;
+      justify-content: center; align-items: center; padding: 20px; box-sizing: border-box;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal { background: var(--card); border-radius: 20px; padding: 20px; width: 100%; max-width: 380px; max-height: 90vh; overflow-y: auto; }
+    .modal h3 { margin-top: 0; margin-bottom: 12px; font-size: 1.1rem; }
+    .modal-row { margin-bottom: 12px; }
+    .modal-row label { display: block; font-size: 0.8rem; color: var(--text-sec); margin-bottom: 4px; }
+    .modal-divider { border-top: 1px solid var(--border); margin: 16px 0; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Welcome, {{ user_name }}</h1>
+    <div class="header-actions">
+      <button class="btn-link" onclick="toggleTheme()" id="theme-btn">☀️ Light</button>
+      <a href="/logout" class="btn-link">Switch Profile</a>
+    </div>
+  </div>
+
+  <!-- Primary Metrics Grid -->
+  <div class="grid">
+    <div class="stat-card">
+      <div class="stat-label">Current Weight</div>
+      <div class="stat-val" id="stat-current">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Progress</div>
+      <div class="stat-val" id="stat-loss">--</div>
+    </div>
+  </div>
+
+  <!-- Goal Velocity & Required Pace Card -->
+  <div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+      <h2 style="margin: 0; font-size: 1.05rem;">Goal Pace Feedback</h2>
+      <button class="btn-link" onclick="openGoalModal()">⚙️ Settings</button>
+    </div>
+    <div style="font-size: 0.9rem; line-height: 1.4; color: var(--text-sec);" id="pace-summary">
+      Loading goal targets...
+    </div>
+    <div id="pace-badge-container"></div>
+  </div>
+
+  <!-- Logging Card -->
+  <div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <h2 style="margin: 0; font-size: 1.05rem;">Log Weight</h2>
+      <div class="unit-toggle">
+        <span>Unit:</span>
+        <select id="unit-select" onchange="toggleUnit()">
+          <option value="lbs">lbs</option>
+          <option value="kg">kg</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <input type="date" id="log-date">
+      <input type="number" step="0.1" id="log-weight" placeholder="Weight">
+    </div>
+    <div class="form-group">
+      <input type="text" id="log-notes" placeholder="Notes (optional)">
+      <button class="btn-primary" onclick="submitWeight()">Save</button>
+    </div>
+  </div>
+
+  <!-- Chart Card with Simulation Toggle -->
+  <div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <h2 style="margin: 0; font-size: 1.05rem;">Weight Trend (7-Day Avg)</h2>
+      <button class="btn-link" id="sim-toggle-btn" onclick="toggleSimulation()">⚡ Load Demo Simulation</button>
+    </div>
+    <div id="sim-banner" style="display: none;">
+      <span class="goal-badge badge-sim">⚠️ Viewing Simulated Data (UI Preview Mode)</span>
+    </div>
+    <canvas id="weightChart"></canvas>
+  </div>
+
+  <!-- Profile Settings & Goals Modal -->
+  <div class="modal-overlay" id="goal-modal">
+    <div class="modal">
+      <h3>Target Goal Settings</h3>
+      <div class="modal-row">
+        <label>Start Weight (<span class="unit-label">lbs</span>) — <i>Leave blank to auto-use 1st log</i></label>
+        <input type="number" step="0.1" id="modal-start" placeholder="Auto-detected from logs">
+      </div>
+      <div class="modal-row">
+        <label>Target Goal Weight (<span class="unit-label">lbs</span>)</label>
+        <input type="number" step="0.1" id="modal-target" placeholder="e.g. 175.0">
+      </div>
+      <div class="modal-row">
+        <label>Target Completion Date</label>
+        <input type="date" id="modal-date">
+      </div>
+      <div class="modal-row">
+        <label>Target Weekly Loss Goal (<span class="unit-label">lbs</span>/week)</label>
+        <input type="number" step="0.1" id="modal-rate" placeholder="1.0">
+      </div>
+
+      <div style="display: flex; gap: 8px; margin-top: 16px;">
+        <button style="flex: 1;" class="btn-secondary" onclick="closeGoalModal()">Cancel</button>
+        <button style="flex: 1;" class="btn-primary" onclick="saveGoalSettings()">Save Goals</button>
+      </div>
+
+      <div class="modal-divider"></div>
+
+      <!-- Security / PIN Management -->
+      <h3>Security & PIN</h3>
+      <div class="modal-row">
+        <label>New 4-Digit PIN</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="password" id="modal-new-pin" maxlength="4" pattern="\d{4}" placeholder="••••" style="letter-spacing: 4px; font-size: 1.1rem; text-align: center;">
+          <button class="btn-primary" onclick="updatePin()" style="white-space: nowrap;">Update PIN</button>
+        </div>
+        <div id="pin-feedback" style="font-size: 0.8rem; margin-top: 6px; min-height: 18px;"></div>
+      </div>
+
+      <div class="modal-divider"></div>
+
+      <!-- Maintenance Tools -->
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <button class="btn-secondary" onclick="resetDefaults()">🔄 Reset Profile Goals to Default</button>
+        <button class="btn-danger" onclick="clearAllLogs()">🗑️ Delete All Weight Logs</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const KG_TO_LBS = 2.20462;
+    let userProfile = {};
+    let rawWeights = [];
+    let isSimulated = false;
+    let chart = null;
+
+    document.getElementById('log-date').valueAsDate = new Date();
+
+    function initTheme() {
+      const savedTheme = localStorage.getItem('theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', savedTheme);
+      document.getElementById('theme-btn').innerText = savedTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
+    }
+
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+      document.getElementById('theme-btn').innerText = next === 'dark' ? '☀️ Light' : '🌙 Dark';
+      if (chart) renderDashboard();
+    }
+
+    async function init() {
+      initTheme();
+      const pRes = await fetch('/api/user/profile');
+      userProfile = await pRes.json();
+      document.getElementById('unit-select').value = userProfile.display_unit || 'lbs';
+      await loadData();
+    }
+
+    async function loadData() {
+      if (!isSimulated) {
+        const res = await fetch('/api/weights');
+        rawWeights = await res.json();
+      }
+      renderDashboard();
+    }
+
+    function toggleSimulation() {
+      if (isSimulated) {
+        isSimulated = false;
+        document.getElementById('sim-toggle-btn').innerText = '⚡ Load Demo Simulation';
+        document.getElementById('sim-banner').style.display = 'none';
+        loadData();
+      } else {
+        isSimulated = true;
+        document.getElementById('sim-toggle-btn').innerText = '✖ Clear Simulation';
+        document.getElementById('sim-banner').style.display = 'block';
+        rawWeights = generateSimulatedWeights();
+        renderDashboard();
+      }
+    }
+
+    function generateSimulatedWeights() {
+      const days = 30;
+      const simData = [];
+      const now = new Date();
+
+      const startKg = getStartWeightKg() > 0 ? getStartWeightKg() : 85.0;
+      const targetKg = parseFloat(userProfile.target_weight) > 0 ? parseFloat(userProfile.target_weight) : startKg - 4.0;
+
+      const totalPlannedLossKg = Math.max(1.0, startKg - targetKg);
+      const dailyRateKg = totalPlannedLossKg / 60;
+
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(now.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+
+        const dayIndex = days - 1 - i;
+        const trendWeightKg = startKg - (dayIndex * dailyRateKg);
+
+        const noise = (Math.sin(dayIndex * 1.5) * 0.25) + (Math.cos(dayIndex * 0.8) * 0.15);
+        const measuredWeightKg = parseFloat((trendWeightKg + noise).toFixed(2));
+
+        simData.push({
+          id: `sim-${dayIndex}`,
+          date: dateStr,
+          weight: measuredWeightKg,
+          notes: dayIndex % 5 === 0 ? 'Simulation log' : ''
+        });
+      }
+      return simData;
+    }
+
+    function getStartWeightKg() {
+      if (userProfile.start_weight && parseFloat(userProfile.start_weight) > 0) {
+        return parseFloat(userProfile.start_weight);
+      }
+      if (rawWeights && rawWeights.length > 0) {
+        return parseFloat(rawWeights[0].weight);
+      }
+      return 0.0;
+    }
+
+    function renderDashboard() {
+      const unit = document.getElementById('unit-select').value;
+      const isLbs = unit === 'lbs';
+      document.querySelectorAll('.unit-label').forEach(el => el.innerText = unit);
+
+      if (rawWeights.length > 0) {
+        const latestKg = parseFloat(rawWeights[rawWeights.length - 1].weight);
+        const startKg = getStartWeightKg();
+        const targetKg = parseFloat(userProfile.target_weight) || 0.0;
+
+        const displayLatest = (isLbs ? latestKg * KG_TO_LBS : latestKg).toFixed(1);
+
+        if (startKg > 0) {
+          const lossValue = startKg - latestKg;
+          const displayLoss = (isLbs ? lossValue * KG_TO_LBS : lossValue).toFixed(1);
+          document.getElementById('stat-loss').innerText = `${displayLoss > 0 ? '-' : ''}${Math.abs(displayLoss)} ${unit}`;
+        } else {
+          document.getElementById('stat-loss').innerText = `--`;
+        }
+
+        document.getElementById('stat-current').innerText = `${displayLatest} ${unit}`;
+
+        if (targetKg > 0 && userProfile.target_date) {
+          const targetDate = new Date(userProfile.target_date);
+          const now = new Date();
+          const daysRemaining = Math.max(1, (targetDate - now) / (1000 * 60 * 60 * 24));
+          const weeksRemaining = daysRemaining / 7;
+
+          const remainingKg = latestKg - targetKg;
+          const reqRateKgPerWk = remainingKg / weeksRemaining;
+          const displayReqRate = (isLbs ? reqRateKgPerWk * KG_TO_LBS : reqRateKgPerWk).toFixed(2);
+          const displayTargetW = (isLbs ? targetKg * KG_TO_LBS : targetKg).toFixed(1);
+
+          let summaryText = `Target: <b>${displayTargetW} ${unit}</b> by <b>${userProfile.target_date}</b> (${Math.round(weeksRemaining)} weeks left).`;
+          summaryText += `<br>Required Pace: <b>${displayReqRate} ${unit}/week</b>.`;
+
+          document.getElementById('pace-summary').innerHTML = summaryText;
+
+          if (rawWeights.length >= 2) {
+            const firstOfPeriod = parseFloat(rawWeights[Math.max(0, rawWeights.length - 7)].weight);
+            const recentLossKg = firstOfPeriod - latestKg;
+            const recentRateKgWk = recentLossKg;
+
+            const badgeContainer = document.getElementById('pace-badge-container');
+            if (recentRateKgWk >= reqRateKgPerWk) {
+              badgeContainer.innerHTML = `<span class="goal-badge badge-success">✓ On Track (Current pace: ${(isLbs ? recentRateKgWk * KG_TO_LBS : recentRateKgWk).toFixed(1)} ${unit}/wk)</span>`;
+            } else {
+              badgeContainer.innerHTML = `<span class="goal-badge badge-warning">! Below Pace (Current pace: ${(isLbs ? recentRateKgWk * KG_TO_LBS : recentRateKgWk).toFixed(1)} ${unit}/wk)</span>`;
+            }
+          }
+        } else {
+          document.getElementById('pace-summary').innerHTML = 'No target date set. Click <b>Settings</b> to configure your timeline.';
+          document.getElementById('pace-badge-container').innerHTML = '';
+        }
+      } else {
+        document.getElementById('stat-current').innerText = '--';
+        document.getElementById('stat-loss').innerText = '--';
+        document.getElementById('pace-summary').innerHTML = 'No weight entries logged yet.';
+        document.getElementById('pace-badge-container').innerHTML = '';
+      }
+
+      // Render Chart
+      const labels = rawWeights.map(w => w.date);
+      const dailyPoints = rawWeights.map(w => isLbs ? (parseFloat(w.weight) * KG_TO_LBS).toFixed(1) : parseFloat(w.weight).toFixed(1));
+
+      const maPoints = dailyPoints.map((val, idx, arr) => {
+        const start = Math.max(0, idx - 6);
+        const subset = arr.slice(start, idx + 1);
+        const sum = subset.reduce((a, b) => parseFloat(a) + parseFloat(b), 0);
+        return (sum / subset.length).toFixed(1);
+      });
+
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      const gridColor = isDark ? '#2c2c2e' : '#e5e5ea';
+      const textColor = isDark ? '#8e8e93' : '#6c6c70';
+
+      const ctx = document.getElementById('weightChart').getContext('2d');
+      if (chart) chart.destroy();
+
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: `Daily (${unit})`,
+              data: dailyPoints,
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.2)',
+              borderWidth: 1,
+              pointRadius: 3,
+              showLine: true
+            },
+            {
+              label: `7-Day Avg (${unit})`,
+              data: maPoints,
+              borderColor: '#0a84ff',
+              borderWidth: 3,
+              fill: false,
+              tension: 0.3,
+              pointRadius: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { ticks: { color: textColor }, grid: { color: gridColor } },
+            y: { ticks: { color: textColor }, grid: { color: gridColor } }
+          }
+        }
+      });
+    }
+
+    function openGoalModal() {
+      const unit = document.getElementById('unit-select').value;
+      const isLbs = unit === 'lbs';
+
+      if (userProfile.start_weight && parseFloat(userProfile.start_weight) > 0) {
+        const sw = parseFloat(userProfile.start_weight);
+        document.getElementById('modal-start').value = (isLbs ? sw * KG_TO_LBS : sw).toFixed(1);
+      } else {
+        document.getElementById('modal-start').value = '';
+      }
+
+      if (userProfile.target_weight && parseFloat(userProfile.target_weight) > 0) {
+        const tw = parseFloat(userProfile.target_weight);
+        document.getElementById('modal-target').value = (isLbs ? tw * KG_TO_LBS : tw).toFixed(1);
+      } else {
+        document.getElementById('modal-target').value = '';
+      }
+
+      document.getElementById('modal-date').value = userProfile.target_date || '';
+
+      if (userProfile.weekly_rate) {
+        const wr = parseFloat(userProfile.weekly_rate);
+        document.getElementById('modal-rate').value = (isLbs ? wr * KG_TO_LBS : wr).toFixed(1);
+      } else {
+        document.getElementById('modal-rate').value = isLbs ? '1.0' : '0.5';
+      }
+
+      document.getElementById('modal-new-pin').value = '';
+      document.getElementById('pin-feedback').innerText = '';
+      document.getElementById('goal-modal').classList.add('active');
+    }
+
+    function closeGoalModal() {
+      document.getElementById('goal-modal').classList.remove('active');
+    }
+
+    async function saveGoalSettings() {
+      const unit = document.getElementById('unit-select').value;
+      const isLbs = unit === 'lbs';
+
+      const startRaw = document.getElementById('modal-start').value;
+      const targetRaw = document.getElementById('modal-target').value;
+      const rateRaw = document.getElementById('modal-rate').value;
+
+      const startInput = startRaw !== '' ? parseFloat(startRaw) : 0;
+      const targetInput = targetRaw !== '' ? parseFloat(targetRaw) : 0;
+      const rateInput = rateRaw !== '' ? parseFloat(rateRaw) : 0.5;
+
+      userProfile.start_weight = (startInput > 0) ? (isLbs ? startInput / KG_TO_LBS : startInput) : 0;
+      userProfile.target_weight = (targetInput > 0) ? (isLbs ? targetInput / KG_TO_LBS : targetInput) : 0;
+      userProfile.weekly_rate = isLbs ? rateInput / KG_TO_LBS : rateInput;
+      userProfile.target_date = document.getElementById('modal-date').value;
+      userProfile.display_unit = unit;
+
+      await fetch('/api/user/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userProfile)
+      });
+
+      closeGoalModal();
+      if (isSimulated) {
+        rawWeights = generateSimulatedWeights();
+      }
+      renderDashboard();
+    }
+
+    async function updatePin() {
+      const pinInput = document.getElementById('modal-new-pin');
+      const feedback = document.getElementById('pin-feedback');
+      const newPin = pinInput.value.trim();
+
+      if (newPin.length !== 4 || isNaN(newPin)) {
+        feedback.style.color = 'var(--danger)';
+        feedback.innerText = 'Please enter a valid 4-digit numeric PIN.';
+        return;
+      }
+
+      const res = await fetch('/api/user/change-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: newPin })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.status === 'success') {
+        feedback.style.color = 'var(--success)';
+        feedback.innerText = '✓ PIN updated successfully!';
+        pinInput.value = '';
+      } else {
+        feedback.style.color = 'var(--danger)';
+        feedback.innerText = data.message || 'Failed to update PIN.';
+      }
+    }
+
+    async function resetDefaults() {
+      if (!confirm('Reset target weight, start weight, and dates to default values?')) return;
+
+      userProfile.start_weight = 0;
+      userProfile.target_weight = 0;
+      userProfile.target_date = '';
+      userProfile.weekly_rate = 0.45;
+
+      await fetch('/api/user/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userProfile)
+      });
+
+      closeGoalModal();
+      renderDashboard();
+    }
+
+    async function clearAllLogs() {
+      if (!confirm('Are you sure you want to delete ALL logged weight entries? This cannot be undone.')) return;
+
+      for (const log of rawWeights) {
+        if (!isSimulated && log.id) {
+          await fetch(`/api/weights/${log.id}`, { method: 'DELETE' });
+        }
+      }
+
+      if (isSimulated) toggleSimulation();
+      closeGoalModal();
+      await loadData();
+    }
+
+    async function toggleUnit() {
+      const newUnit = document.getElementById('unit-select').value;
+      userProfile.display_unit = newUnit;
+      renderDashboard();
+      await fetch('/api/user/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userProfile)
+      });
+    }
+
+    async function submitWeight() {
+      const date = document.getElementById('log-date').value;
+      const val = parseFloat(document.getElementById('log-weight').value);
+      const notes = document.getElementById('log-notes').value;
+      const unit = document.getElementById('unit-select').value;
+
+      if (isNaN(val)) return;
+
+      const weightKg = unit === 'lbs' ? val / KG_TO_LBS : val;
+
+      await fetch('/api/weights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, weight: weightKg, notes })
+      });
+
+      document.getElementById('log-weight').value = '';
+      document.getElementById('log-notes').value = '';
+
+      if (isSimulated) toggleSimulation();
+      else loadData();
+    }
+
+    init();
+  </script>
+</body>
+</html>

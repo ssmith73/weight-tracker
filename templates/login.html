@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Weight Tracker - Login</title>
+  <style>
+    :root {
+      --bg: #121212; --card: #1c1c1e; --accent: #0a84ff;
+      --text: #ffffff; --text-sec: #8e8e93; --danger: #ff453a;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+      background: var(--bg); color: var(--text);
+      display: flex; justify-content: center; align-items: center;
+      min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box;
+    }
+    .login-card {
+      background: var(--card); border-radius: 20px; padding: 28px;
+      width: 100%; max-width: 340px; text-align: center;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    h2 { margin: 0 0 20px 0; font-size: 1.4rem; }
+    .user-select { display: flex; gap: 10px; margin-bottom: 24px; }
+    .user-btn {
+      flex: 1; padding: 12px; background: #2c2c2e; border: 2px solid transparent;
+      border-radius: 12px; color: var(--text); font-weight: 600; cursor: pointer;
+    }
+    .user-btn.active { border-color: var(--accent); background: rgba(10,132,255,0.15); }
+    .pin-display {
+      letter-spacing: 12px; font-size: 2rem; margin-bottom: 20px;
+      height: 40px; line-height: 40px; color: var(--accent);
+    }
+    .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .key {
+      background: #2c2c2e; border: none; border-radius: 50%;
+      width: 64px; height: 64px; margin: 0 auto;
+      font-size: 1.5rem; font-weight: 600; color: var(--text); cursor: pointer;
+    }
+    .key:active { background: #3a3a3c; }
+    .error-msg { color: var(--danger); font-size: 0.85rem; margin-top: 14px; min-height: 20px; }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <h2>Select Profile</h2>
+    <div class="user-select" id="user-buttons"></div>
+    <div class="pin-display" id="pin-dots">••••</div>
+    <div class="keypad">
+      <button class="key" onclick="pressNum('1')">1</button>
+      <button class="key" onclick="pressNum('2')">2</button>
+      <button class="key" onclick="pressNum('3')">3</button>
+      <button class="key" onclick="pressNum('4')">4</button>
+      <button class="key" onclick="pressNum('5')">5</button>
+      <button class="key" onclick="pressNum('6')">6</button>
+      <button class="key" onclick="pressNum('7')">7</button>
+      <button class="key" onclick="pressNum('8')">8</button>
+      <button class="key" onclick="pressNum('9')">9</button>
+      <button class="key" style="font-size: 1rem;" onclick="clearPin()">Clear</button>
+      <button class="key" onclick="pressNum('0')">0</button>
+      <button class="key" style="font-size: 1rem;" onclick="submitLogin()">OK</button>
+    </div>
+    <div class="error-msg" id="error-text"></div>
+  </div>
+
+  <script>
+    let selectedUserId = null;
+    let pinBuffer = "";
+
+    async function loadUsers() {
+      const res = await fetch('/api/users');
+      const users = await res.json();
+      const container = document.getElementById('user-buttons');
+      container.innerHTML = "";
+      users.forEach((u, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'user-btn' + (i === 0 ? ' active' : '');
+        btn.innerText = u.name;
+        btn.onclick = () => selectUser(u.id, btn);
+        container.appendChild(btn);
+        if (i === 0) selectedUserId = u.id;
+      });
+    }
+
+    function selectUser(id, btn) {
+      selectedUserId = id;
+      document.querySelectorAll('.user-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      clearPin();
+    }
+
+    function pressNum(num) {
+      if (pinBuffer.length < 4) {
+        pinBuffer += num;
+        updateDots();
+        if (pinBuffer.length === 4) submitLogin();
+      }
+    }
+
+    function clearPin() {
+      pinBuffer = "";
+      updateDots();
+      document.getElementById('error-text').innerText = "";
+    }
+
+    function updateDots() {
+      const dots = "•".repeat(pinBuffer.length) + "•".repeat(4 - pinBuffer.length);
+      document.getElementById('pin-dots').innerText = pinBuffer.length ? pinBuffer : "••••";
+    }
+
+    async function submitLogin() {
+      if (!selectedUserId || pinBuffer.length !== 4) return;
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: selectedUserId, pin: pinBuffer })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === 'success') {
+        window.location.href = '/';
+      } else {
+        document.getElementById('error-text').innerText = data.message || 'Invalid PIN';
+        pinBuffer = "";
+        updateDots();
+      }
+    }
+
+    loadUsers();
+  </script>
+</body>
+</html>
