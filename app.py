@@ -6,8 +6,6 @@ import sqlite3
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 app = Flask(__name__)
-
-# Use a strong secret key for signing session cookies
 app.secret_key = os.urandom(24)
 DB_PATH = "weight.db"
 
@@ -20,7 +18,6 @@ def get_db():
 
 
 def login_required(f):
-
   @wraps(f)
   def decorated_function(*args, **kwargs):
     if "user_id" not in session:
@@ -28,12 +25,10 @@ def login_required(f):
         return jsonify({"status": "error", "message": "Unauthorized"}), 401
       return redirect(url_for("login_page"))
     return f(*args, **kwargs)
-
   return decorated_function
 
 
 def hash_pin(pin: str):
-  """Generates a salt and PBKDF2 hash for a given 4-digit PIN."""
   salt = os.urandom(16)
   key = hashlib.pbkdf2_hmac("sha256", pin.encode("utf-8"), salt, 100000)
   return key.hex(), salt.hex()
@@ -51,9 +46,7 @@ def verify_pin(pin: str, stored_hash: str, salt_hex: str) -> bool:
 
 
 def init_db_users():
-  """Ensures default users exist with valid PBKDF2 hashes."""
   db = get_db()
-  # Create users table if it doesn't exist
   db.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,29 +57,32 @@ def init_db_users():
             target_weight REAL DEFAULT 0,
             target_date TEXT DEFAULT '',
             weekly_rate REAL DEFAULT 0.45,
-            display_unit TEXT DEFAULT 'lbs'
+            display_unit TEXT DEFAULT 'lbs',
+            height_cm REAL DEFAULT 0.0,
+            bmi_threshold REAL DEFAULT 25.0
         )
     """)
 
+  cursor = db.cursor()
+  cursor.execute("PRAGMA table_info(users);")
+  columns = [col["name"] for col in cursor.fetchall()]
+  if "height_cm" not in columns:
+    db.execute("ALTER TABLE users ADD COLUMN height_cm REAL DEFAULT 0.0;")
+  if "bmi_threshold" not in columns:
+    db.execute("ALTER TABLE users ADD COLUMN bmi_threshold REAL DEFAULT 25.0;")
+
   default_users = ["Sean", "Wife"]
   for name in default_users:
-    user = db.execute(
-        "SELECT id, pin_hash, salt FROM users WHERE name = ?", (name,)
-    ).fetchone()
+    user = db.execute("SELECT id, pin_hash, salt FROM users WHERE name = ?", (name,)).fetchone()
     if not user:
       pin_hash, salt = hash_pin("1234")
       db.execute(
-          "INSERT INTO users (name, pin_hash, salt) VALUES (?, ?, ?)",
-          (name, pin_hash, salt),
+          "INSERT INTO users (name, pin_hash, salt, height_cm, bmi_threshold) VALUES (?, ?, ?, ?, ?)",
+          (name, pin_hash, salt, 180.0, 25.0),
       )
-      print(f"Created profile '{name}' with default PIN 1234")
     elif not user["pin_hash"] or not user["salt"]:
       pin_hash, salt = hash_pin("1234")
-      db.execute(
-          "UPDATE users SET pin_hash = ?, salt = ? WHERE id = ?",
-          (pin_hash, salt, user["id"]),
-      )
-      print(f"Reset profile '{name}' PIN to 1234")
+      db.execute("UPDATE users SET pin_hash = ?, salt = ? WHERE id = ?", (pin_hash, salt, user["id"]))
 
   db.commit()
   db.close()
@@ -105,7 +101,6 @@ def logout():
 
 @app.route("/api/users", methods=["GET"])
 def get_users_list():
-  """Returns public profile list (names and IDs only) for the login picker."""
   db = get_db()
   users = db.execute("SELECT id, name FROM users ORDER BY name ASC").fetchall()
   db.close()
@@ -149,7 +144,7 @@ def user_profile():
   if request.method == "GET":
     user = db.execute(
         "SELECT name, start_weight, target_weight, target_date, weekly_rate,"
-        " display_unit FROM users WHERE id = ?",
+        " display_unit, height_cm, bmi_threshold FROM users WHERE id = ?",
         (user_id,),
     ).fetchone()
     db.close()
@@ -164,19 +159,19 @@ def user_profile():
     unit = data.get("display_unit", "lbs")
     if unit not in ["lbs", "kg"]:
       unit = "lbs"
+    height = float(data.get("height_cm", 0.0))
+    bmi_thresh = float(data.get("bmi_threshold", 25.0))
   except ValueError:
     db.close()
-    return jsonify(
-        {"status": "error", "message": "Invalid numeric values"}
-    ), 400
+    return jsonify({"status": "error", "message": "Invalid numeric values"}), 400
 
   db.execute(
       """
         UPDATE users
-        SET start_weight = ?, target_weight = ?, target_date = ?, weekly_rate = ?, display_unit = ?
+        SET start_weight = ?, target_weight = ?, target_date = ?, weekly_rate = ?, display_unit = ?, height_cm = ?, bmi_threshold = ?
         WHERE id = ?
     """,
-      (start_w, target_w, target_d, weekly_r, unit, user_id),
+      (start_w, target_w, target_d, weekly_r, unit, height, bmi_thresh, user_id),
   )
   db.commit()
   db.close()
@@ -191,20 +186,11 @@ def change_pin():
   new_pin = str(data.get("pin", "")).strip()
 
   if not new_pin or len(new_pin) != 4 or not new_pin.isdigit():
-    return (
-        jsonify({
-            "status": "error",
-            "message": "PIN must be exactly 4 numeric digits.",
-        }),
-        400,
-    )
+    return jsonify({"status": "error", "message": "PIN must be exactly 4 numeric digits."}), 400
 
   pin_hash, salt = hash_pin(new_pin)
   db = get_db()
-  db.execute(
-      "UPDATE users SET pin_hash = ?, salt = ? WHERE id = ?",
-      (pin_hash, salt, session["user_id"]),
-  )
+  db.execute("UPDATE users SET pin_hash = ?, salt = ? WHERE id = ?", (pin_hash, salt, session["user_id"]))
   db.commit()
   db.close()
 
@@ -218,16 +204,9 @@ def handle_weights():
   user_id = session["user_id"]
 
   if request.method == "GET":
-    rows = db.execute(
-        "SELECT date, weight, notes FROM weights WHERE user_id = ? ORDER BY"
-        " date ASC",
-        (user_id,),
-    ).fetchall()
+    rows = db.execute("SELECT date, weight, notes FROM weights WHERE user_id = ? ORDER BY date ASC", (user_id,)).fetchall()
     db.close()
-    return jsonify([
-        {"date": r["date"], "weight": r["weight"], "notes": r["notes"]}
-        for r in rows
-    ])
+    return jsonify([{"date": r["date"], "weight": r["weight"], "notes": r["notes"]} for r in rows])
 
   data = request.get_json() or {}
   date_str = data.get("date") or datetime.now().strftime("%Y-%m-%d")
@@ -237,9 +216,7 @@ def handle_weights():
     weight_val = float(data["weight"])
   except (KeyError, ValueError):
     db.close()
-    return jsonify(
-        {"status": "error", "message": "Valid weight value required"}
-    ), 400
+    return jsonify({"status": "error", "message": "Valid weight value required"}), 400
 
   db.execute(
       """
@@ -259,10 +236,7 @@ def handle_weights():
 @login_required
 def delete_weight(date_str):
   db = get_db()
-  db.execute(
-      "DELETE FROM weights WHERE user_id = ? AND date = ?",
-      (session["user_id"], date_str),
-  )
+  db.execute("DELETE FROM weights WHERE user_id = ? AND date = ?", (session["user_id"], date_str))
   db.commit()
   db.close()
   return jsonify({"status": "success"})
@@ -270,5 +244,4 @@ def delete_weight(date_str):
 
 if __name__ == "__main__":
   init_db_users()
-  # Bound to port 5001 to avoid conflicting with existing workshop app on port 5000
   app.run(host="0.0.0.0", port=5001, debug=True)

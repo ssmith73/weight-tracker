@@ -18,7 +18,7 @@ def init_db():
 
     cursor.execute("PRAGMA foreign_keys = ON;")
 
-    # 1. Expanded Users Table
+    # 1. Expanded Users Table with Height & BMI Threshold
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,7 +29,9 @@ def init_db():
             target_weight REAL DEFAULT 0.0,   -- Stored in kg
             target_date TEXT,                 -- ISO format: YYYY-MM-DD
             weekly_rate REAL DEFAULT 0.5,     -- Target loss rate in kg/week
-            display_unit TEXT DEFAULT 'lbs'   -- Preferred UI toggle: 'lbs' or 'kg'
+            display_unit TEXT DEFAULT 'lbs',  -- Preferred UI toggle: 'lbs' or 'kg'
+            height_cm REAL DEFAULT 0.0,       -- Height in centimeters for BMI calculation
+            bmi_threshold REAL DEFAULT 25.0   -- Target BMI threshold line overlay
         );
     """)
 
@@ -51,23 +53,19 @@ def init_db():
     if cursor.fetchone()[0] == 0:
         print("Initializing default user profiles with goal tracking...")
 
-        # Helper: Convert lbs to kg for database seeding
-        # 200 lbs = ~90.7 kg, 180 lbs = ~81.6 kg
-        # 150 lbs = ~68.0 kg, 135 lbs = ~61.2 kg
-
         # User 1: Sean (PIN: 1234)
         hash1, salt1 = hash_pin("1234")
         cursor.execute("""
-            INSERT INTO users (name, pin_hash, salt, start_weight, target_weight, target_date, weekly_rate, display_unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, ("Sean", hash1, salt1, 90.7, 81.6, "2027-01-15", 0.68, "lbs"))
+            INSERT INTO users (name, pin_hash, salt, start_weight, target_weight, target_date, weekly_rate, display_unit, height_cm, bmi_threshold)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, ("Sean", hash1, salt1, 90.7, 81.6, "2027-01-15", 0.68, "lbs", 180.0, 25.0))
 
         # User 2: Wife (PIN: 5678)
         hash2, salt2 = hash_pin("5678")
         cursor.execute("""
-            INSERT INTO users (name, pin_hash, salt, start_weight, target_weight, target_date, weekly_rate, display_unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, ("Wife", hash2, salt2, 68.0, 61.2, "2027-02-01", 0.45, "lbs"))
+            INSERT INTO users (name, pin_hash, salt, start_weight, target_weight, target_date, weekly_rate, display_unit, height_cm, bmi_threshold)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, ("Wife", hash2, salt2, 68.0, 61.2, "2027-02-01", 0.45, "lbs", 165.0, 24.0))
 
         print("Created default profiles: 'Sean' (PIN: 1234) and 'Wife' (PIN: 5678)")
 
